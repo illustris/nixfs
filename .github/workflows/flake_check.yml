@@ -1,0 +1,27 @@
+name: flake check
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    types: [ "opened" ]
+    branches: [ "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Nix
+        uses: cachix/install-nix-action@v18
+        with:
+          extra_nix_config: "experimental-features = nix-command flakes\nsystem-features = nixos-test benchmark big-parallel kvm"
+
+      - uses: actions/checkout@v3
+
+      - name: flake check
+        run: nix flake check
+      - name: flake metadata
+        run: nix flake metadata
+      - name: flake show
+        run: nix flake show

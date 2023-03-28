@@ -1,0 +1,62 @@
+#define FUSE_USE_VERSION 26
+#include <fuse.h>
+#include <string.h>
+#include <errno.h>
+#include <stddef.h>
+#include <fcntl.h>
+
+#include "debug.h"
+#include "nixfs.h"
+
+int debug_enabled = 0;
+
+typedef struct {
+	int debug_enabled;
+	// Add other custom flags as needed
+} nixfs_options;
+
+nixfs_options options;
+
+#define NIXFS_OPT(t, p) { t, offsetof(nixfs_options, p), 1 }
+static struct fuse_opt nixfs_opts[] = {
+	NIXFS_OPT("--debug", debug_enabled),
+	// Add more custom flags here
+	FUSE_OPT_END
+};
+
+static int nixfs_opt_proc(void *data, const char *arg, int key,
+			   struct fuse_args *outargs) {
+	// supress warnings
+	(void)data;
+	(void)arg;
+
+	switch (key) {
+	case FUSE_OPT_KEY_NONOPT:
+		// Pass non-option arguments to fuse
+		return 1;
+	default:
+		// Pass options not defined in nixfs_opts to fuse
+		return 1;
+	}
+}
+
+static struct fuse_operations nixfs_oper = {
+	.getattr = nixfs_getattr,
+	.readdir = nixfs_readdir,
+	.open = nixfs_open,
+	.read = nixfs_read,
+	.readlink = nixfs_readlink,
+};
+
+int main(int argc, char *argv[]) {
+	struct fuse_args args = FUSE_ARGS_INIT(argc, argv);
+	memset(&options, 0, sizeof(options));
+	fuse_opt_parse(&args, &options, nixfs_opts, nixfs_opt_proc);
+
+	if (options.debug_enabled) {
+		debug_enabled = 1;
+		log_debug("Debug logging enabled\n");
+	}
+
+	return fuse_main(args.argc, args.argv, &nixfs_oper, NULL);
+}
