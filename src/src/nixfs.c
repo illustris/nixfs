@@ -1,6 +1,7 @@
 #include <fuse.h>
 #include <errno.h>
 #include <string.h>
+#include <stdio.h>
 
 #include "debug.h"
 #include "nixfs.h"
@@ -11,7 +12,7 @@ fs_node fs_nodes[] = {
 	{ "/cake",      S_IFDIR | 0755, 0 },
 	{ "/cake/lie",  S_IFDIR | 0755, 0 },
 	{ "/flake/b64", S_IFDIR | 0755, 0 },
-	{ "/flake/str", S_IFREG | 0444, 1337 },
+	{ "/flake/str", S_IFDIR | 0755, 0 },
 };
 
 
@@ -28,6 +29,14 @@ int nixfs_getattr(const char *path, struct stat *stbuf) {
 			stbuf->st_size = fs_nodes[i].size;
 			return 0;
 		}
+	}
+
+	// Handle dynamic paths under /flake/str/
+	if (strncmp(path, "/flake/str/", strlen("/flake/str/")) == 0) {
+		stbuf->st_mode = S_IFLNK | 0777;
+		stbuf->st_nlink = 1;
+		stbuf->st_size = 0;
+		return 0;
 	}
 
 	return -ENOENT;
@@ -83,11 +92,24 @@ int nixfs_open(const char *path, struct fuse_file_info *fi) {
 
 int nixfs_readlink(const char *path, char *buf, size_t size) {
 	log_debug("nixfs_readlink: size=%lu\n", size);
-	if (strcmp(path, "/abc") == 0) {
-		strncpy(buf, "/hello.txt", size - 1);
-		buf[size - 1] = '\0'; // Ensure null-termination
+
+	if (strncmp(path, "/flake/str/", strlen("/flake/str/")) == 0) {
+		const char *flake_spec = path + strlen("/flake/str/");
+		char cmd[1024];
+		snprintf(cmd, sizeof(cmd), "nix build --no-link --print-out-paths '%s'", flake_spec);
+
+		FILE *fp = popen(cmd, "r");
+		if (fp == NULL) {
+			return -ENOENT;
+		}
+
+		fgets(buf, size, fp);
+		buf[strcspn(buf, "\n")] = '\0'; // Remove newline character
+
+		pclose(fp);
+
 		return 0;
-	} else {
-		return -ENOENT;
 	}
+
+	return -ENOENT;
 }

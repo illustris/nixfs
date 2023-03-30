@@ -9,7 +9,7 @@ int nixfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 #define MAX_PATH_LENGTH 256
 
 typedef struct {
-	char path[MAX_PATH_LENGTH];
+	char *path;
 	mode_t mode;
 	off_t size;
 } fs_node;

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-MOUNT_POINT="./mnt/"
+MOUNT_POINT="/tmp/nixfs/"
 FUSE_COMMAND="nix run -L .# -- ${MOUNT_POINT} --debug -f -s"
 SRC_DIR="src/"
 
