@@ -6,10 +6,12 @@
 #include "nixfs.h"
 
 fs_node fs_nodes[] = {
-	{ "/",             S_IFDIR | 0755, 0 },
-	{ "/flake",        S_IFDIR | 0755, 0 },
-	{ "/flake/b64",    S_IFREG | 0444, 1337 },
-	{ "/flake/str",    S_IFREG | 0444, 1337 },
+	{ "/",          S_IFDIR | 0755, 0 },
+	{ "/flake",     S_IFDIR | 0755, 0 },
+	{ "/cake",      S_IFDIR | 0755, 0 },
+	{ "/cake/lie",  S_IFDIR | 0755, 0 },
+	{ "/flake/b64", S_IFDIR | 0755, 0 },
+	{ "/flake/str", S_IFREG | 0444, 1337 },
 };
 
 
@@ -56,13 +58,13 @@ int nixfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 	for (size_t i = 0; i < N_FS_NODES; i++) {
 		if (fs_nodes[i].path != parent->path && strncmp(parent->path, fs_nodes[i].path, strlen(parent->path)) == 0) {
 			const char *child_name = fs_nodes[i].path + strlen(parent->path);
-			log_debug("child_name: %s\n",child_name);
-			if (!strchr(child_name, '/')) {
-				/* log_debug("child_name: %s\n\n",child_name); */
-				filler(buf, child_name, NULL, 0);
+			if (child_name[0] != '\0' && strchr(child_name + 1, '/') == NULL) {
+				filler(buf, child_name + (child_name[0] == '/' ? 1 : 0), NULL, 0);
 			}
 		}
 	}
+
+
 
 	return 0;
 }
