@@ -7,11 +7,14 @@ SRC_DIR="src/"
 function cleanup {
     fusermount -u ${MOUNT_POINT}
     echo "Unmounted ${MOUNT_POINT}"
+    rmdir $MOUNT_POINT
 }
 
 trap cleanup EXIT
 
 while true; do
+    # Ensure the dir exists
+    mkdir -p $MOUNT_POINT
     # Run the FUSE command in the background
     ${FUSE_COMMAND} &
     FUSE_PID=$!
