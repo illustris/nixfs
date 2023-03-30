@@ -6,6 +6,7 @@
 #include <fcntl.h>
 
 #include "debug.h"
+#include "nixfs.h"
 
 static const char *hello_str = "Hello, World!\n";
 static const char *hello_path = "/hello.txt";
@@ -107,10 +108,11 @@ static int simple_read(const char *path, char *buf, size_t size, off_t offset,
 }
 
 static struct fuse_operations simple_oper = {
-	.getattr = simple_getattr,
-	.readdir = simple_readdir,
+	.getattr = nixfs_getattr,
+	.readdir = nixfs_readdir,
 	.open = simple_open,
 	.read = simple_read,
+	.readlink = nixfs_readlink,
 };
 
 int main(int argc, char *argv[]) {
