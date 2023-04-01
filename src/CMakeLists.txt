@@ -18,4 +18,9 @@ pkg_check_modules(FUSE REQUIRED fuse)
 include_directories(${FUSE_INCLUDE_DIRS})
 target_link_libraries(nixfs ${FUSE_LIBRARIES})
 
+# Find and link OpenSSL
+find_package(OpenSSL REQUIRED)
+include_directories(${OPENSSL_INCLUDE_DIR})
+target_link_libraries(nixfs ${OPENSSL_LIBRARIES})
+
 install(TARGETS nixfs DESTINATION bin)

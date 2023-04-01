@@ -6,8 +6,11 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <stdlib.h>
+
 #include "debug.h"
 #include "nixfs.h"
+#include "base64.h"
 
 fs_node fs_nodes[] = {
 	{ "/",          S_IFDIR | 0755, 0 },
@@ -34,7 +37,7 @@ int nixfs_getattr(const char *path, struct stat *stbuf) {
 	}
 
 	// Handle dynamic paths under /flake/str/
-	if STR_PREFIX(path, "/flake/str/") {
+	if (STR_PREFIX(path, "/flake/str/") || STR_PREFIX(path, "/flake/b64/")) {
 		stbuf->st_mode = S_IFLNK | 0777;
 		stbuf->st_nlink = 1;
 		stbuf->st_size = 0;
@@ -93,10 +96,20 @@ int nixfs_open(const char *path, struct fuse_file_info *fi) {
 }
 
 int nixfs_readlink(const char *path, char *buf, size_t size) {
-	log_debug("nixfs_readlink: size=%lu\n", size);
+	if (STR_PREFIX(path, "/flake/str/") || STR_PREFIX(path, "/flake/b64/")) {
+		const char *flake_spec;
+		if (STR_PREFIX(path, "/flake/str/")) {
+			flake_spec = path + strlen("/flake/str/");
+		} else {
+			const char *encoded_spec = path + strlen("/flake/b64/");
+			size_t decoded_len;
+			char *decoded_spec = malloc(strlen(encoded_spec) + 1); // Allocate memory for the decoded spec
+			base64_decode(encoded_spec, strlen(encoded_spec), decoded_spec, &decoded_len);
+			decoded_spec[decoded_len] = '\0';
+			flake_spec = strdup(decoded_spec);
+			free(decoded_spec);
+		}
 
-	if (STR_PREFIX(path, "/flake/str/")) {
-		const char *flake_spec = path + strlen("/flake/str/");
 		int pipe_fd[2];
 
 		if (pipe(pipe_fd) == -1) {
@@ -136,6 +149,10 @@ int nixfs_readlink(const char *path, char *buf, size_t size) {
 			if (WEXITSTATUS(wstatus) != 0) {
 				log_debug("nix command exited with status %d\n", WEXITSTATUS(wstatus));
 				return -ENOENT;
+			}
+
+			if (STR_PREFIX(path, "/flake/b64/")) {
+				free((void *)flake_spec);
 			}
 
 			return 0;

@@ -21,6 +21,7 @@
 				];
 				buildInputs = with pkgs; [
 					fuse
+					openssl
 				];
 			};
 			default = nixfs;
