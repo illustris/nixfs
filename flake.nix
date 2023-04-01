@@ -63,8 +63,10 @@
 				nodes.n = {
 					imports = [ self.nixosModules.nixfs ];
 					services.nixfs.enable = true;
+					system.extraDependencies = [ nixpkgs.legacyPackages.${pkgs.system}.hello ];
+					nix.registry.nixpkgs.flake = nixpkgs;
 				};
-				testScript = "n.succeed('tree /nixfs; false')";
+				testScript = "assert 'Hello, world!' in n.succeed('set -x; /nixfs/flake/b64/$(echo -n ${nixpkgs}#hello | base64)/bin/hello')";
 			};
 		});
 	};
