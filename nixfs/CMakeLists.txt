@@ -24,3 +24,5 @@ include_directories(${OPENSSL_INCLUDE_DIR})
 target_link_libraries(nixfs ${OPENSSL_LIBRARIES})
 
 install(TARGETS nixfs DESTINATION bin)
+install(CODE "execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink nixfs \$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/mount.nixfs)")
+install(CODE "execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink nixfs \$ENV{DESTDIR}${CMAKE_INSTALL_PREFIX}/bin/mount.fuse.nixfs)")

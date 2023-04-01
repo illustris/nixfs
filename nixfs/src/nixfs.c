@@ -128,7 +128,11 @@ int nixfs_readlink(const char *path, char *buf, size_t size) {
 			close(pipe_fd[0]);
 			close(pipe_fd[1]);
 
-			execlp("nix", "nix", "build", "--no-link", "--print-out-paths", flake_spec, NULL);
+			execlp("nix", "nix",
+			       "--extra-experimental-features", "nix-command",
+			       "--extra-experimental-features", "flakes",
+			       "build", "--no-link",
+			       "--print-out-paths", flake_spec, NULL);
 			perror("execlp");
 			_exit(1); // If execlp fails, exit the child process
 		} else { // Parent process
