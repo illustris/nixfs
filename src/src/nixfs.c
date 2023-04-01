@@ -9,8 +9,6 @@
 fs_node fs_nodes[] = {
 	{ "/",          S_IFDIR | 0755, 0 },
 	{ "/flake",     S_IFDIR | 0755, 0 },
-	{ "/cake",      S_IFDIR | 0755, 0 },
-	{ "/cake/lie",  S_IFDIR | 0755, 0 },
 	{ "/flake/b64", S_IFDIR | 0755, 0 },
 	{ "/flake/str", S_IFDIR | 0755, 0 },
 };
@@ -18,6 +16,7 @@ fs_node fs_nodes[] = {
 
 
 #define N_FS_NODES sizeof(fs_nodes) / sizeof(fs_nodes[0])
+#define STR_PREFIX(path, match) (strncmp(path, match, strlen(match)) == 0)
 
 int nixfs_getattr(const char *path, struct stat *stbuf) {
 	memset(stbuf, 0, sizeof(struct stat));
@@ -32,7 +31,7 @@ int nixfs_getattr(const char *path, struct stat *stbuf) {
 	}
 
 	// Handle dynamic paths under /flake/str/
-	if (strncmp(path, "/flake/str/", strlen("/flake/str/")) == 0) {
+	if STR_PREFIX(path, "/flake/str/") {
 		stbuf->st_mode = S_IFLNK | 0777;
 		stbuf->st_nlink = 1;
 		stbuf->st_size = 0;
@@ -65,7 +64,7 @@ int nixfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 	filler(buf, "..", NULL, 0);
 
 	for (size_t i = 0; i < N_FS_NODES; i++) {
-		if (fs_nodes[i].path != parent->path && strncmp(parent->path, fs_nodes[i].path, strlen(parent->path)) == 0) {
+		if (fs_nodes[i].path != parent->path && STR_PREFIX(fs_nodes[i].path, parent->path)) {
 			const char *child_name = fs_nodes[i].path + strlen(parent->path);
 			if (child_name[0] != '\0' && strchr(child_name + 1, '/') == NULL) {
 				filler(buf, child_name + (child_name[0] == '/' ? 1 : 0), NULL, 0);
@@ -93,7 +92,7 @@ int nixfs_open(const char *path, struct fuse_file_info *fi) {
 int nixfs_readlink(const char *path, char *buf, size_t size) {
 	log_debug("nixfs_readlink: size=%lu\n", size);
 
-	if (strncmp(path, "/flake/str/", strlen("/flake/str/")) == 0) {
+	if STR_PREFIX(path, "/flake/str/") {
 		const char *flake_spec = path + strlen("/flake/str/");
 		char cmd[1024];
 		snprintf(cmd, sizeof(cmd), "nix build --no-link --print-out-paths '%s'", flake_spec);
@@ -103,7 +102,12 @@ int nixfs_readlink(const char *path, char *buf, size_t size) {
 			return -ENOENT;
 		}
 
-		fgets(buf, size, fp);
+		if (fgets(buf, size, fp) == NULL) {
+			perror("fgets");
+			pclose(fp);
+			return -EIO;
+		}
+
 		buf[strcspn(buf, "\n")] = '\0'; // Remove newline character
 
 		pclose(fp);
