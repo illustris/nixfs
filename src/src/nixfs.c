@@ -3,6 +3,9 @@
 #include <string.h>
 #include <stdio.h>
 
+#include <sys/wait.h>
+#include <unistd.h>
+
 #include "debug.h"
 #include "nixfs.h"
 
@@ -92,27 +95,51 @@ int nixfs_open(const char *path, struct fuse_file_info *fi) {
 int nixfs_readlink(const char *path, char *buf, size_t size) {
 	log_debug("nixfs_readlink: size=%lu\n", size);
 
-	if STR_PREFIX(path, "/flake/str/") {
+	if (STR_PREFIX(path, "/flake/str/")) {
 		const char *flake_spec = path + strlen("/flake/str/");
-		char cmd[1024];
-		snprintf(cmd, sizeof(cmd), "nix build --no-link --print-out-paths '%s'", flake_spec);
+		int pipe_fd[2];
 
-		FILE *fp = popen(cmd, "r");
-		if (fp == NULL) {
-			return -ENOENT;
-		}
-
-		if (fgets(buf, size, fp) == NULL) {
-			perror("fgets");
-			pclose(fp);
+		if (pipe(pipe_fd) == -1) {
+			perror("pipe");
 			return -EIO;
 		}
 
-		buf[strcspn(buf, "\n")] = '\0'; // Remove newline character
+		pid_t pid = fork();
+		if (pid == -1) {
+			perror("fork");
+			return -EIO;
+		}
 
-		pclose(fp);
+		if (pid == 0) { // Child process
+			dup2(pipe_fd[1], STDOUT_FILENO);
+			close(pipe_fd[0]);
+			close(pipe_fd[1]);
 
-		return 0;
+			execlp("nix", "nix", "build", "--no-link", "--print-out-paths", flake_spec, NULL);
+			perror("execlp");
+			_exit(1); // If execlp fails, exit the child process
+		} else { // Parent process
+			close(pipe_fd[1]);
+
+			ssize_t nread = read(pipe_fd[0], buf, size - 1);
+			if (nread == -1) {
+				perror("read");
+				return -EIO;
+			}
+			buf[nread] = '\0';
+			buf[strcspn(buf, "\n")] = '\0'; // Remove newline character
+
+			close(pipe_fd[0]);
+
+			int wstatus;
+			waitpid(pid, &wstatus, 0);
+			if (WEXITSTATUS(wstatus) != 0) {
+				log_debug("nix command exited with status %d\n", WEXITSTATUS(wstatus));
+				return -ENOENT;
+			}
+
+			return 0;
+		}
 	}
 
 	return -ENOENT;
