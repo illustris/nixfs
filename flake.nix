@@ -14,7 +14,7 @@
 			nixfs = pkgs.stdenv.mkDerivation {
 				pname = "nixfs";
 				version = "0.1.0";
-				src = ./src;
+				src = ./nixfs;
 				nativeBuildInputs = with pkgs; [
 					cmake
 					pkg-config
@@ -25,6 +25,16 @@
 				];
 			};
 			default = nixfs;
+		});
+		devShells = genAttrs [
+			"x86_64-linux"
+			"aarch64-linux"
+			"riscv64-linux"
+		] (system: with nixpkgs.legacyPackages.${system}; rec {
+			default = pkgs.mkShell {
+				buildInputs = with pkgs; [ inotify-tools ];
+				shellHook = "alias debug='bash ${./debugrun.sh}'";
+			};
 		});
 	};
 }

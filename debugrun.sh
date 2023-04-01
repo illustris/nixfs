@@ -2,7 +2,7 @@
 
 MOUNT_POINT="/tmp/nixfs/"
 FUSE_COMMAND="nix run -L .# -- ${MOUNT_POINT} --debug -f -s"
-SRC_DIR="src/"
+SRC_DIR="nixfs/"
 
 function cleanup {
     fusermount -u ${MOUNT_POINT}
