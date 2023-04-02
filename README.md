@@ -1,14 +1,40 @@
 # NixFS
 
-WIP
+Access any derivation through filesystem paths
 
-Mount:
+## How it works
+
 ```
-mkdir -p /tmp/nixfs && nix run github:illustris/nixfs -- /tmp/nixfs --debug -f -s
+/nixfs
+└── flake
+    ├── b64
+    └── str
 ```
 
-Access:
+Attempting to access `/nixfs/flake/str/nixpkgs#hello` or any subpaths of it will trigger a nix-build
+of nixpkgs#hello, and make the path appear as a symlink to the store path of the build result.
+
+`/nixfs/flake/b64/<base64 encoded flake URL>` can be used to access flakes with `/` in the URL.
+
+## Usage
+
 ```
-$ /tmp/nixfs/flake/str/nixpkgs#hello/bin/hello
-Hello, world!
+nixfs [--debug] [<fuse mount options>] /mount/path
+```
+
+## NixOS module
+
+`flake.nix`:
+
+```
+{
+	inputs.nixfs.url = "github:illustris/flake";
+	
+	outputs = {nixpkgs, nixfs, ...}: {
+		nixosConfigurations.my_machine = {
+			imports = [ nixfs.nixosModules.nixfs ];
+			services.nixfs.enable = true;
+		};
+	};
+}
 ```
