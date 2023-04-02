@@ -1,17 +1,16 @@
-#include <fuse.h>
 #include <errno.h>
-#include <string.h>
+#include <fuse.h>
 #include <stdio.h>
-
+#include <stdlib.h>
+#include <string.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
-#include <stdlib.h>
-
+#include "base64.h"
 #include "debug.h"
 #include "nixfs.h"
-#include "base64.h"
 
+// define the fixed parts of the tree
 fs_node fs_nodes[] = {
 	{ "/",          S_IFDIR | 0755, 0 },
 	{ "/flake",     S_IFDIR | 0755, 0 },
@@ -25,8 +24,11 @@ fs_node fs_nodes[] = {
 #define STR_PREFIX(path, match) (strncmp(path, match, strlen(match)) == 0)
 
 int nixfs_getattr(const char *path, struct stat *stbuf) {
+	log_debug("nixfs_getattr: path='%s'\n", path);
+
 	memset(stbuf, 0, sizeof(struct stat));
 
+	// iterate through fs_nodes till a matching path is found
 	for (size_t i = 0; i < N_FS_NODES; i++) {
 		if (strcmp(path, fs_nodes[i].path) == 0) {
 			stbuf->st_mode = fs_nodes[i].mode;
@@ -36,7 +38,7 @@ int nixfs_getattr(const char *path, struct stat *stbuf) {
 		}
 	}
 
-	// Handle dynamic paths under /flake/str/
+	// Handle dynamic paths under /flake/str/ and /flake/b64/
 	if (STR_PREFIX(path, "/flake/str/") || STR_PREFIX(path, "/flake/b64/")) {
 		stbuf->st_mode = S_IFLNK | 0777;
 		stbuf->st_nlink = 1;
@@ -49,41 +51,44 @@ int nixfs_getattr(const char *path, struct stat *stbuf) {
 
 int nixfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
                   off_t offset, struct fuse_file_info *fi) {
-	fs_node *parent = NULL;
+	log_debug("nixfs_readdir: path='%s'\n", path);
 
-	log_debug("Here\n");
+	fs_node *parent = NULL;
 
 	for (size_t i = 0; i < N_FS_NODES; i++) {
 		if (strcmp(path, fs_nodes[i].path) == 0) {
-			log_debug("matched %s\n",path);
 			parent = &fs_nodes[i];
 			break;
 		}
 	}
 
 	if (!parent || !(parent->mode & S_IFDIR)) {
-		log_debug("No parent\n");
+		log_debug("nixfs_readdir: parent not found\n");
 		return -ENOENT;
 	}
 
 	filler(buf, ".", NULL, 0);
 	filler(buf, "..", NULL, 0);
 
+	// find all child dirs of parent
 	for (size_t i = 0; i < N_FS_NODES; i++) {
+		// match the start of the path with parent
 		if (fs_nodes[i].path != parent->path && STR_PREFIX(fs_nodes[i].path, parent->path)) {
 			const char *child_name = fs_nodes[i].path + strlen(parent->path);
+			// pass only up to the next / to filler()
 			if (child_name[0] != '\0' && strchr(child_name + 1, '/') == NULL) {
 				filler(buf, child_name + (child_name[0] == '/' ? 1 : 0), NULL, 0);
 			}
 		}
 	}
 
-
-
 	return 0;
 }
 
 int nixfs_open(const char *path, struct fuse_file_info *fi) {
+	log_debug("nixfs_open: path='%s'\n", path);
+
+	// only allow read-only open()
 	if (strcmp(path, "/flake/b64") == 0 || strcmp(path, "/flake/str") == 0) {
 		if ((fi->flags & O_ACCMODE) != O_RDONLY) {
 			return -EACCES;
@@ -95,18 +100,28 @@ int nixfs_open(const char *path, struct fuse_file_info *fi) {
 	return 0;
 }
 
+// minimal implementation of read()
+int nixfs_read(const char *path, char *buf, size_t size, off_t offset,
+		       struct fuse_file_info *fi) {
+	return -ENOENT;
+}
+
 int nixfs_readlink(const char *path, char *buf, size_t size) {
+	log_debug("nixfs_readlink: path='%s'\n", path);
+
 	if (STR_PREFIX(path, "/flake/str/") || STR_PREFIX(path, "/flake/b64/")) {
 		const char *flake_spec;
 		if (STR_PREFIX(path, "/flake/str/")) {
+			// extract flake spec from path
 			flake_spec = path + strlen("/flake/str/");
 		} else {
+			// base64 decode flake spec
 			const char *encoded_spec = path + strlen("/flake/b64/");
 			size_t decoded_len;
 			char *decoded_spec = malloc(strlen(encoded_spec) + 1); // Allocate memory for the decoded spec
 			base64_decode(encoded_spec, strlen(encoded_spec), decoded_spec, &decoded_len);
 			decoded_spec[decoded_len] = '\0';
-			flake_spec = strdup(decoded_spec);
+			flake_spec = strdup(decoded_spec); // copy the string flake spec to a new string
 			free(decoded_spec);
 		}
 
@@ -156,6 +171,7 @@ int nixfs_readlink(const char *path, char *buf, size_t size) {
 			}
 
 			if (STR_PREFIX(path, "/flake/b64/")) {
+				// only dynamically allocated for b64
 				free((void *)flake_spec);
 			}
 

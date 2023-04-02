@@ -63,9 +63,10 @@
 				nodes.n = {
 					imports = [ self.nixosModules.nixfs ];
 					services.nixfs.enable = true;
+					# ensure the build result nixfs will access is already present in the VM
 					system.extraDependencies = [ nixpkgs.legacyPackages.${pkgs.system}.hello ];
-					nix.registry.nixpkgs.flake = nixpkgs;
 				};
+				# use the store path of the nixpkgs flake to avoid downloading from the internet
 				testScript = "assert 'Hello, world!' in n.succeed('set -x; /nixfs/flake/b64/$(echo -n ${nixpkgs}#hello | base64)/bin/hello')";
 			};
 		});
