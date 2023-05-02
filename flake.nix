@@ -51,7 +51,7 @@
 							pkgs.nix
 							self.packages.${pkgs.system}.nixfs
 						];
-						script = "nixfs ${config.services.nixfs.mountPath} -f";
+						script = "nixfs ${config.services.nixfs.mountPath} -o allow_other -f";
 					};
 					tmpfiles.rules = [ "d ${config.services.nixfs.mountPath} 555 root root" ];
 				};
