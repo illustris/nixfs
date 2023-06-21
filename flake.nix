@@ -53,7 +53,7 @@
 						];
 						script = "nixfs ${config.services.nixfs.mountPath} -o allow_other -f";
 					};
-					tmpfiles.rules = [ "D ${config.services.nixfs.mountPath} - - -" ];
+					tmpfiles.rules = [ "d ${config.services.nixfs.mountPath} - - -" ];
 				};
 			};
 		};
