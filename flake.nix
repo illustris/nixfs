@@ -47,8 +47,9 @@
 				systemd = {
 					services.nixfs = {
 						wantedBy = [ "multi-user.target" ];
-						path = [
-							pkgs.nix
+						path = with pkgs; [
+							git
+							nix
 							self.packages.${pkgs.system}.nixfs
 						];
 						script = "nixfs ${config.services.nixfs.mountPath} -o allow_other -f";
