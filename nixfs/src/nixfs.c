@@ -9,13 +9,15 @@
 #include "base64.h"
 #include "debug.h"
 #include "nixfs.h"
+#include "urldec.h"
 
 // define the fixed parts of the tree
 fs_node fs_nodes[] = {
-	{ "/",          S_IFDIR | 0755, 0 },
-	{ "/flake",     S_IFDIR | 0755, 0 },
-	{ "/flake/b64", S_IFDIR | 0755, 0 },
-	{ "/flake/str", S_IFDIR | 0755, 0 },
+	{ "/",             S_IFDIR | 0755, 0 },
+	{ "/flake",        S_IFDIR | 0755, 0 },
+	{ "/flake/b64",    S_IFDIR | 0755, 0 },
+	{ "/flake/str",    S_IFDIR | 0755, 0 },
+	{ "/flake/urlenc", S_IFDIR | 0755, 0 },
 };
 
 
@@ -39,7 +41,8 @@ int nixfs_getattr(const char *path, struct stat *stbuf) {
 	}
 
 	// Handle dynamic paths under /flake/str/ and /flake/b64/
-	if (STR_PREFIX(path, "/flake/str/") || STR_PREFIX(path, "/flake/b64/")) {
+	// TODO: avoid hardcoding each valid subpath
+	if (STR_PREFIX(path, "/flake/str/") || STR_PREFIX(path, "/flake/b64/") || STR_PREFIX(path, "/flake/urlenc/")) {
 		stbuf->st_mode = S_IFLNK | 0777;
 		stbuf->st_nlink = 1;
 		stbuf->st_size = 0;
@@ -109,74 +112,97 @@ int nixfs_read(const char *path, char *buf, size_t size, off_t offset,
 int nixfs_readlink(const char *path, char *buf, size_t size) {
 	log_debug("nixfs_readlink: path='%s'\n", path);
 
-	if (STR_PREFIX(path, "/flake/str/") || STR_PREFIX(path, "/flake/b64/")) {
-		const char *flake_spec;
-		if (STR_PREFIX(path, "/flake/str/")) {
-			// extract flake spec from path
-			flake_spec = path + strlen("/flake/str/");
+	if (!STR_PREFIX(path, "/flake/str/") && !STR_PREFIX(path, "/flake/b64/") && !STR_PREFIX(path, "/flake/urlenc/"))
+		return -ENOENT;
+
+
+	/* const char *flake_spec; */
+	const char *encoded_spec;
+	const char *flake_spec;
+	size_t decoded_len;
+	char *decoded_spec;
+
+	if (STR_PREFIX(path, "/flake/str/")) {
+		// extract flake spec from path
+		flake_spec = path + strlen("/flake/str/");
+	} else {
+		// Determine decoding method and encoded spec based on prefix
+		int (*decode_func)(const char*, size_t, char*, size_t*);
+		if (STR_PREFIX(path, "/flake/b64/")) {
+			decode_func = base64_decode;
+			encoded_spec = path + strlen("/flake/b64/");
+		} else if (STR_PREFIX(path, "/flake/urlenc/")) {
+			decode_func = urldecode;
+			encoded_spec = path + strlen("/flake/urlenc/");
 		} else {
-			// base64 decode flake spec
-			const char *encoded_spec = path + strlen("/flake/b64/");
-			size_t decoded_len;
-			char *decoded_spec = malloc(strlen(encoded_spec) + 1); // Allocate memory for the decoded spec
-			base64_decode(encoded_spec, strlen(encoded_spec), decoded_spec, &decoded_len);
-			decoded_spec[decoded_len] = '\0';
-			flake_spec = strdup(decoded_spec); // copy the string flake spec to a new string
+			// handle error - unknown prefix
+			return -ENOENT;
+		}
+		char *decoded_spec = malloc(strlen(encoded_spec) + 1); // Allocate memory for the decoded spec
+		if (decoded_spec == NULL) {
+			return -ENOENT;
+		};
+		if (decode_func(encoded_spec, strlen(encoded_spec), decoded_spec, &decoded_len) == -1) {
+			// handle decoding failure
 			free(decoded_spec);
+			return -ENOENT;
 		}
+		decoded_spec[decoded_len] = '\0';
+		flake_spec = strdup(decoded_spec); // copy the string flake spec to a new string
+		free(decoded_spec);
+	}
 
-		int pipe_fd[2];
+	int pipe_fd[2];
 
-		if (pipe(pipe_fd) == -1) {
-			perror("pipe");
+	if (pipe(pipe_fd) == -1) {
+		perror("pipe");
+		return -EIO;
+	}
+
+	pid_t pid = fork();
+	if (pid == -1) {
+		perror("fork");
+		return -EIO;
+	}
+
+	if (pid == 0) { // Child process
+		dup2(pipe_fd[1], STDOUT_FILENO);
+		close(pipe_fd[0]);
+		close(pipe_fd[1]);
+
+		execlp("nix", "nix",
+		       "--extra-experimental-features", "nix-command",
+		       "--extra-experimental-features", "flakes",
+		       "build", "--no-link",
+		       "--print-out-paths", flake_spec, NULL);
+		perror("execlp");
+		_exit(1); // If execlp fails, exit the child process
+	} else { // Parent process
+		close(pipe_fd[1]);
+
+		ssize_t nread = read(pipe_fd[0], buf, size - 1);
+		if (nread == -1) {
+			perror("read");
 			return -EIO;
 		}
+		buf[nread] = '\0';
+		buf[strcspn(buf, "\n")] = '\0'; // Remove newline character
 
-		pid_t pid = fork();
-		if (pid == -1) {
-			perror("fork");
-			return -EIO;
+		close(pipe_fd[0]);
+
+		int wstatus;
+		waitpid(pid, &wstatus, 0);
+		if (WEXITSTATUS(wstatus) != 0) {
+			log_debug("nix command exited with status %d\n", WEXITSTATUS(wstatus));
+			return -ENOENT;
 		}
 
-		if (pid == 0) { // Child process
-			dup2(pipe_fd[1], STDOUT_FILENO);
-			close(pipe_fd[0]);
-			close(pipe_fd[1]);
-
-			execlp("nix", "nix",
-			       "--extra-experimental-features", "nix-command",
-			       "--extra-experimental-features", "flakes",
-			       "build", "--no-link",
-			       "--print-out-paths", flake_spec, NULL);
-			perror("execlp");
-			_exit(1); // If execlp fails, exit the child process
-		} else { // Parent process
-			close(pipe_fd[1]);
-
-			ssize_t nread = read(pipe_fd[0], buf, size - 1);
-			if (nread == -1) {
-				perror("read");
-				return -EIO;
-			}
-			buf[nread] = '\0';
-			buf[strcspn(buf, "\n")] = '\0'; // Remove newline character
-
-			close(pipe_fd[0]);
-
-			int wstatus;
-			waitpid(pid, &wstatus, 0);
-			if (WEXITSTATUS(wstatus) != 0) {
-				log_debug("nix command exited with status %d\n", WEXITSTATUS(wstatus));
-				return -ENOENT;
-			}
-
-			if (STR_PREFIX(path, "/flake/b64/")) {
-				// only dynamically allocated for b64
-				free((void *)flake_spec);
-			}
-
-			return 0;
+		if (STR_PREFIX(path, "/flake/b64/") || STR_PREFIX(path, "/flake/urlenc/")) {
+			// only dynamically allocated for b64
+			free((void *)flake_spec);
 		}
+
+		return 0;
 	}
 
 	return -ENOENT;

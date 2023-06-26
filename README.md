@@ -11,11 +11,12 @@ NixFS is a FUSE-based filesystem that allows you to access any Nix derivation by
 └── flake
     ├── b64
     └── str
+    └── urlenc
 ```
 
 When you attempt to access /nixfs/flake/str/nixpkgs#hello or any subpaths of it, NixFS will automatically trigger a nix-build of nixpkgs#hello. The path will then appear as a symlink to the store path of the build result.
 
-For flakes with / in their URL, you can use `/nixfs/flake/b64/<base64 encoded flake URL>` to access them.
+For flakes with / in their URL, you can use `/nixfs/flake/urlenc/<url encoded flake URL>` to access them.
 
 ## Usage
 
@@ -24,6 +25,11 @@ nixfs [--debug] [<fuse mount options>] /mount/path
 ```
 
 This will mount the NixFS filesystem to the specified mount path.
+
+```
+$ ls /tmp/nixfs/flake/urlenc/$(echo -n github:illustris/nixfs | jq -sRr @uri)/bin
+mount.fuse.nixfs  mount.nixfs  nixfs
+```
 
 ## NixOS module
 
