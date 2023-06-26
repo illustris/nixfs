@@ -17,6 +17,7 @@ NixFS is a FUSE-based filesystem that allows you to access any Nix derivation by
 When you attempt to access /nixfs/flake/str/nixpkgs#hello or any subpaths of it, NixFS will automatically trigger a nix-build of nixpkgs#hello. The path will then appear as a symlink to the store path of the build result.
 
 For flakes with / in their URL, you can use `/nixfs/flake/urlenc/<url encoded flake URL>` to access them.
+You can also use `base64url` encoding (i.e. b64 with `+/` replaced by `-_`) at `/nixfs/flake/b64/<base64url encoded flake URL>`.
 
 ## Usage
 
@@ -28,6 +29,8 @@ This will mount the NixFS filesystem to the specified mount path.
 
 ```
 $ ls /tmp/nixfs/flake/urlenc/$(echo -n github:illustris/nixfs | jq -sRr @uri)/bin
+mount.fuse.nixfs  mount.nixfs  nixfs
+$ ls /tmp/nixfs/flake/b64/$(echo -n github:illustris/nixfs | base64 -w0 | tr '+/' '-_')/bin
 mount.fuse.nixfs  mount.nixfs  nixfs
 ```
 
