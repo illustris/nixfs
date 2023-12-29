@@ -25,6 +25,50 @@ fs_node fs_nodes[] = {
 #define N_FS_NODES sizeof(fs_nodes) / sizeof(fs_nodes[0])
 #define STR_PREFIX(path, match) (strncmp(path, match, strlen(match)) == 0)
 
+char** tokenize_path(const char *path) {
+	// Copy the input path since strtok modifies the string
+	char *path_copy = strdup(path);
+	if (path_copy == NULL) {
+		return NULL; // Memory allocation failed
+	}
+
+	// Count the number of tokens
+	int token_count = 0;
+	for (int i = 0; path_copy[i] != '\0'; i++) {
+		if (path_copy[i] == '/') {
+			token_count++;
+		}
+	}
+
+	// Allocate memory for the token pointers
+	char **tokens = malloc(sizeof(char*) * (token_count + 2)); // +1 for the last token and +1 for NULL
+	if (tokens == NULL) {
+		free(path_copy);
+		return NULL; // Memory allocation failed
+	}
+
+	// Tokenize the path
+	int index = 0;
+	char *token = strtok(path_copy, "/");
+	while (token != NULL) {
+		tokens[index++] = strdup(token); // Duplicate token
+		token = strtok(NULL, "/");
+	}
+	tokens[index] = NULL; // Null-terminate the array
+
+	free(path_copy); // Free the copy as it's no longer needed
+	return tokens;
+}
+
+void free_tokens(char **tokens) {
+	if (tokens != NULL) {
+		for (int i = 0; tokens[i] != NULL; i++) {
+			free(tokens[i]);
+		}
+		free(tokens);
+	}
+}
+
 int nixfs_getattr(const char *path, struct stat *stbuf) {
 	log_debug("nixfs_getattr: path='%s'\n", path);
 
@@ -109,12 +153,83 @@ int nixfs_read(const char *path, char *buf, size_t size, off_t offset,
 	return -ENOENT;
 }
 
+void exec_with_tokens(char **tokens, const char *flake_spec) {
+	// Count the number of tokens
+	int token_count;
+	for (token_count = 0; tokens[token_count] != NULL; token_count++);
+
+	// Prepare the arguments array
+	const int FIXED_ARGS = 8;  // Number of fixed arguments before tokens
+	char **args = malloc((FIXED_ARGS + token_count + 2) * sizeof(char*));
+
+	if (args == NULL) {
+			perror("malloc");
+			_exit(1); // If execlp fails, exit the child process
+	}
+
+	// Add fixed arguments
+	args[0] = "nix";
+	args[1] = "--extra-experimental-features";
+	args[2] = "nix-command";
+	args[3] = "--extra-experimental-features";
+	args[4] = "flakes";
+	args[5] = "build";
+	args[6] = "--no-link";
+	args[7] = "--print-out-paths";
+
+	// Add tokens
+	for (int i = 0; i < token_count; i++) {
+		args[FIXED_ARGS + i] = tokens[i];
+	}
+
+	// Add flake_spec and NULL
+	args[FIXED_ARGS + token_count] = (char*)flake_spec;
+	args[FIXED_ARGS + token_count + 1] = NULL;
+
+	for(int i=0; i<(FIXED_ARGS + token_count + 2); i++) {
+		log_debug("exec_with_tokens: args[%d] = %s\n", i, args[i]);
+	}
+
+	// Execute the command
+	execvp("nix", args);
+	perror("exec");
+	_exit(1); // If execlp fails, exit the child process
+}
+
 int nixfs_readlink(const char *path, char *buf, size_t size) {
 	log_debug("nixfs_readlink: path='%s'\n", path);
 
-	if (!STR_PREFIX(path, "/flake/str/") && !STR_PREFIX(path, "/flake/b64/") && !STR_PREFIX(path, "/flake/urlenc/"))
-		return -ENOENT;
+	// this malloc needs to be freed before every possible return
+	// maybe a full zig rewrite is worth doing
+	char **tokens = tokenize_path(path);
+	int token_count = 0;
+	if (tokens != NULL) {
+		for (int i = 0; tokens[i] != NULL; i++) {
+			log_debug("nixfs_readlink: tokens[%d] = %s\n", i, tokens[i]);
+			token_count++;
+		}
+	}
 
+	const char *valid_paths[] = { "str", "b64", "urlenc" };
+	int num_valid_paths = sizeof(valid_paths) / sizeof(valid_paths[0]);
+	int is_valid_path = 0;
+	if(strcmp(tokens[0], "flake")) {
+		log_debug("nixfs_readlink: invalid path\n");
+		free_tokens(tokens);
+		return -ENOENT;
+	}
+	for (int i = 0; i < num_valid_paths; i++) {
+		if (strcmp(tokens[1], valid_paths[i]) == 0) {
+			is_valid_path = 1;
+			break;
+		}
+	}
+	if(!is_valid_path) {
+		log_debug("nixfs_readlink: invalid path\n");
+		free_tokens(tokens);
+		return -ENOENT;
+	}
+	log_debug("nixfs_readlink: path passed basic validation\n");
 
 	/* const char *flake_spec; */
 	const char *encoded_spec;
@@ -122,46 +237,56 @@ int nixfs_readlink(const char *path, char *buf, size_t size) {
 	size_t decoded_len;
 	char *decoded_spec;
 
-	if (STR_PREFIX(path, "/flake/str/")) {
-		// extract flake spec from path
-		flake_spec = path + strlen("/flake/str/");
+	if (strcmp(tokens[1], "str") == 0) {
+		flake_spec = strdup(tokens[token_count-1]); // strdup just to make the free later unconditional
+		log_debug("nixfs_readlink: flake type str\n");
 	} else {
 		// Determine decoding method and encoded spec based on prefix
 		int (*decode_func)(const char*, size_t, char*, size_t*);
-		if (STR_PREFIX(path, "/flake/b64/")) {
+		if (strcmp(tokens[1], "b64") == 0) {
+			log_debug("nixfs_readlink: flake type b64\n");
 			decode_func = base64_decode;
-			encoded_spec = path + strlen("/flake/b64/");
-		} else if (STR_PREFIX(path, "/flake/urlenc/")) {
+		} else if (strcmp(tokens[1], "urlenc") == 0) {
+			log_debug("nixfs_readlink: flake type urlenc\n");
 			decode_func = urldecode;
-			encoded_spec = path + strlen("/flake/urlenc/");
 		} else {
 			// handle error - unknown prefix
+			free_tokens(tokens);
 			return -ENOENT;
 		}
+		encoded_spec = tokens[token_count-1];
+		log_debug("nixfs_readlink: encoded flake spec = %s\n", encoded_spec);
 		char *decoded_spec = malloc(strlen(encoded_spec) + 1); // Allocate memory for the decoded spec
 		if (decoded_spec == NULL) {
+			free_tokens(tokens);
 			return -ENOENT;
 		};
 		if (decode_func(encoded_spec, strlen(encoded_spec), decoded_spec, &decoded_len) == -1) {
 			// handle decoding failure
 			free(decoded_spec);
+			free_tokens(tokens);
 			return -ENOENT;
 		}
 		decoded_spec[decoded_len] = '\0';
 		flake_spec = strdup(decoded_spec); // copy the string flake spec to a new string
 		free(decoded_spec);
 	}
+	log_debug("nixfs_readlink: flake spec = %s\n",flake_spec);
 
 	int pipe_fd[2];
 
 	if (pipe(pipe_fd) == -1) {
 		perror("pipe");
+		free_tokens(tokens);
+		free((void *)flake_spec);
 		return -EIO;
 	}
 
 	pid_t pid = fork();
 	if (pid == -1) {
 		perror("fork");
+		free_tokens(tokens);
+		free((void *)flake_spec);
 		return -EIO;
 	}
 
@@ -170,19 +295,18 @@ int nixfs_readlink(const char *path, char *buf, size_t size) {
 		close(pipe_fd[0]);
 		close(pipe_fd[1]);
 
-		execlp("nix", "nix",
-		       "--extra-experimental-features", "nix-command",
-		       "--extra-experimental-features", "flakes",
-		       "build", "--no-link",
-		       "--print-out-paths", flake_spec, NULL);
-		perror("execlp");
-		_exit(1); // If execlp fails, exit the child process
+		// The last token's pointer is overwritten without freeing,
+		// but shouldn't matter at this point right before an exec
+		tokens[token_count-1] = NULL;
+		exec_with_tokens(tokens+2, flake_spec);
 	} else { // Parent process
 		close(pipe_fd[1]);
 
 		ssize_t nread = read(pipe_fd[0], buf, size - 1);
 		if (nread == -1) {
 			perror("read");
+			free_tokens(tokens);
+			free((void *)flake_spec);
 			return -EIO;
 		}
 		buf[nread] = '\0';
@@ -194,16 +318,18 @@ int nixfs_readlink(const char *path, char *buf, size_t size) {
 		waitpid(pid, &wstatus, 0);
 		if (WEXITSTATUS(wstatus) != 0) {
 			log_debug("nix command exited with status %d\n", WEXITSTATUS(wstatus));
+			free_tokens(tokens);
+			free((void *)flake_spec);
 			return -ENOENT;
 		}
 
-		if (STR_PREFIX(path, "/flake/b64/") || STR_PREFIX(path, "/flake/urlenc/")) {
-			// only dynamically allocated for b64
-			free((void *)flake_spec);
-		}
-
+		free_tokens(tokens);
+		free((void *)flake_spec);
 		return 0;
 	}
 
+ cleanup: // TODO: move all the freeing logic here
+	free_tokens(tokens);
+	free((void *)flake_spec);
 	return -ENOENT;
 }
