@@ -19,6 +19,20 @@ When you attempt to access /nixfs/flake/str/nixpkgs#hello or any subpaths of it,
 For flakes with / in their URL, you can use `/nixfs/flake/urlenc/<url encoded flake URL>` to access them.
 You can also use `base64url` encoding (i.e. b64 with `+/` replaced by `-_`) at `/nixfs/flake/b64/<base64url encoded flake URL>`.
 
+## Passing flags and args to nix build
+
+You can pass flags to the nix build by appending them to the path just before the flake url. Flags starting with a dash (`-`) should be added directly, while arguments not starting with a dash should be prefixed with a hash (`#`). For example:
+
+```
+/nixfs/flake/str/--optional-flag-starting-with-dash/#optional-flag-not-starting-with-dash/nixpkgs#hello
+```
+
+For example:
+
+```
+/nixfs/flake/str/--refresh/nixpkgs#hello
+```
+
 ## Usage
 
 ```
