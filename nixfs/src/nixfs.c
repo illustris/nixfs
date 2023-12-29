@@ -69,6 +69,17 @@ void free_tokens(char **tokens) {
 	}
 }
 
+int validate_path(const char *valid_paths[], int num_valid_paths, const char *token) {
+	int is_valid_path = 0;
+	for (int i = 0; i < num_valid_paths; i++) {
+		if (strcmp(token, valid_paths[i]) == 0) {
+			is_valid_path = 1;
+			break;
+		}
+	}
+	return is_valid_path;
+}
+
 int nixfs_getattr(const char *path, struct stat *stbuf) {
 	log_debug("nixfs_getattr: path='%s'\n", path);
 
@@ -84,16 +95,45 @@ int nixfs_getattr(const char *path, struct stat *stbuf) {
 		}
 	}
 
+	char **tokens = tokenize_path(path);
+	int token_count = 0;
+	if (tokens != NULL) {
+		for (int i = 0; tokens[i] != NULL; i++) {
+			log_debug("nixfs_getattr: tokens[%d] = %s\n", i, tokens[i]);
+			token_count++;
+		}
+	}
+
 	// Handle dynamic paths under /flake/str/ and /flake/b64/
 	// TODO: avoid hardcoding each valid subpath
-	if (STR_PREFIX(path, "/flake/str/") || STR_PREFIX(path, "/flake/b64/") || STR_PREFIX(path, "/flake/urlenc/")) {
-		stbuf->st_mode = S_IFLNK | 0777;
-		stbuf->st_nlink = 1;
+	if (strcmp(tokens[0], "flake")) {
+		free_tokens(tokens);
+		return -ENOENT;
+	}
+
+	if(!validate_path((const char*[]){ "str", "b64", "urlenc" }, 3, tokens[1])) {
+		log_debug("nixfs_getattr: invalid path\n");
+		free_tokens(tokens);
+		return -ENOENT;
+	}
+	log_debug("nixfs_getattr: path passed basic validation\n");
+
+	// if the final token starts with a hash or dash,
+	// assume it is a flag and say it is a dir
+	if (tokens[token_count-1][0] == '#' || tokens[token_count-1][0] == '-') {
+		stbuf->st_mode = S_IFDIR;
+		stbuf->st_nlink = 2;
 		stbuf->st_size = 0;
+		free_tokens(tokens);
 		return 0;
 	}
 
-	return -ENOENT;
+	// if it matches none of the above, assume it is a flake path
+	stbuf->st_mode = S_IFLNK | 0777;
+	stbuf->st_nlink = 1;
+	stbuf->st_size = 0;
+	free_tokens(tokens);
+	return 0;
 }
 
 int nixfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
@@ -179,6 +219,8 @@ void exec_with_tokens(char **tokens, const char *flake_spec) {
 
 	// Add tokens
 	for (int i = 0; i < token_count; i++) {
+		if (tokens[i][0] == '#') tokens[i]++;
+		log_debug("exec_with_tokens: tokens[%d] = %s\n", i, tokens[i]);
 		args[FIXED_ARGS + i] = tokens[i];
 	}
 
@@ -210,21 +252,12 @@ int nixfs_readlink(const char *path, char *buf, size_t size) {
 		}
 	}
 
-	const char *valid_paths[] = { "str", "b64", "urlenc" };
-	int num_valid_paths = sizeof(valid_paths) / sizeof(valid_paths[0]);
-	int is_valid_path = 0;
 	if(strcmp(tokens[0], "flake")) {
 		log_debug("nixfs_readlink: invalid path\n");
 		free_tokens(tokens);
 		return -ENOENT;
 	}
-	for (int i = 0; i < num_valid_paths; i++) {
-		if (strcmp(tokens[1], valid_paths[i]) == 0) {
-			is_valid_path = 1;
-			break;
-		}
-	}
-	if(!is_valid_path) {
+	if(!validate_path((const char*[]){ "str", "b64", "urlenc" }, 3, tokens[1])) {
 		log_debug("nixfs_readlink: invalid path\n");
 		free_tokens(tokens);
 		return -ENOENT;
