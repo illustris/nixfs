@@ -25,6 +25,8 @@
 				];
 			};
 			default = nixfs;
+			# to speed up nixos test
+			inherit hello;
 		});
 		devShells = genAttrs archs (system: with nixpkgs.legacyPackages.${system}; rec {
 			default = mkShell {
@@ -61,14 +63,33 @@
 		checks = genAttrs archs (system: with nixpkgs.legacyPackages.${system}; {
 			default = nixosTest {
 				name = "nixfs-test";
-				nodes.n = {
+				nodes.n = { pkgs, ... }: {
 					imports = [ self.nixosModules.nixfs ];
 					services.nixfs.enable = true;
 					# ensure the build result nixfs will access is already present in the VM
-					system.extraDependencies = [ nixpkgs.legacyPackages.${pkgs.system}.hello ];
+					system.extraDependencies = [
+						self.inputs.nixpkgs
+						self
+						self.packages.${system}.hello
+					];
+					# useful for debugging
+					systemd.services.execsnoop = {
+						script = "execsnoop";
+						path = with pkgs; [
+							bcc
+							gnutar
+							kmod
+							xz
+						];
+						wantedBy = [ "multi-user.target" ];
+					};
 				};
 				# use the store path of the nixpkgs flake to avoid downloading from the internet
-				testScript = "assert 'Hello, world!' in n.succeed('set -x; /nixfs/flake/b64/$(echo -n ${nixpkgs}#hello | base64)/bin/hello')";
+				testScript = concatStringsSep "\n" [
+					"n.wait_for_unit('execsnoop.service')"
+					"n.wait_for_unit('nixfs.service')"
+					"assert 'Hello, world!' in n.succeed('set -x; /nixfs/flake/b64/--offline/$(printf ${self}#hello | base64 -w0)/bin/hello')"
+				];
 			};
 		});
 	};
