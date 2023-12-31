@@ -335,14 +335,29 @@ int nixfs_readlink(const char *path, char *buf, size_t size) {
 	} else { // Parent process
 		close(pipe_fd[1]);
 
-		ssize_t nread = read(pipe_fd[0], buf, size - 1);
-		if (nread == -1) {
-			perror("read");
-			free_tokens(tokens);
-			free((void *)flake_spec);
-			return -EIO;
+		ssize_t nread;
+		ssize_t total_read = 0;
+		while (total_read < size - 1) {
+			nread = read(pipe_fd[0], buf + total_read, size - 1 - total_read);
+			if (nread == -1) {
+				if (errno == EAGAIN || errno == EWOULDBLOCK) {
+					// Pipe is currently empty, but not closed.
+					continue;
+				}
+				perror("read");
+				free_tokens(tokens);
+				log_debug("nixfs_readlink: failed to read from child process\n");
+				free((void *)flake_spec);
+				return -EIO;
+			} else if (nread == 0) {
+				// EOF, no more data to read.
+				break;
+			}
+			total_read += nread;
+			log_debug("nixfs_readlink: partial read buf = %s\n", buf);
 		}
-		buf[nread] = '\0';
+
+		buf[total_read] = '\0';
 		buf[strcspn(buf, "\n")] = '\0'; // Remove newline character
 
 		close(pipe_fd[0]);
