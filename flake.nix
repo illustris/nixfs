@@ -13,7 +13,7 @@
 		packages = genAttrs archs (system: with nixpkgs.legacyPackages.${system}; rec {
 			nixfs = stdenv.mkDerivation {
 				pname = "nixfs";
-				version = "0.1.0";
+				version = "0.2.0";
 				src = ./nixfs;
 				nativeBuildInputs = [
 					cmake
