@@ -27,6 +27,7 @@
 			default = nixfs;
 			# to speed up nixos test
 			inherit hello;
+			updateRelease = writeScriptBin "update-release" (builtins.readFile ./utils/update-release.sh);
 		});
 		devShells = genAttrs archs (system: with nixpkgs.legacyPackages.${system}; rec {
 			default = mkShell {

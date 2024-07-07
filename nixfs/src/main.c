@@ -7,11 +7,13 @@
 
 #include "debug.h"
 #include "nixfs.h"
+#include "version.h"
 
 int debug_enabled = 0;
 
 typedef struct {
 	int debug_enabled;
+	int print_version;
 	// Add other custom flags as needed
 } nixfs_options;
 
@@ -20,6 +22,7 @@ nixfs_options options;
 #define NIXFS_OPT(t, p) { t, offsetof(nixfs_options, p), 1 }
 static struct fuse_opt nixfs_opts[] = {
 	NIXFS_OPT("--debug", debug_enabled),
+	NIXFS_OPT("--version", print_version),
 	// Add more custom flags here
 	FUSE_OPT_END
 };
@@ -52,6 +55,11 @@ int main(int argc, char *argv[]) {
 	struct fuse_args args = FUSE_ARGS_INIT(argc, argv);
 	memset(&options, 0, sizeof(options));
 	fuse_opt_parse(&args, &options, nixfs_opts, nixfs_opt_proc);
+
+	if (options.print_version) {
+		printf("nixfs version %s\n", NIXFS_VERSION);
+		return 0;
+	}
 
 	if (options.debug_enabled) {
 		debug_enabled = 1;
