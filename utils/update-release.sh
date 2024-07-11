@@ -21,7 +21,7 @@ git diff
 read -p "Confirm changes and continue? (y/n): " confirm
 [ "$confirm" != "y" ] && echo "Aborting." && exit 1
 
-execute git add src/setup.py flake.nix
+execute git add nixfs/CMakeLists.txt flake.nix
 
 git diff --cached
 
