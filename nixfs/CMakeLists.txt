@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.0)
-project(nixfs VERSION 0.2.0 LANGUAGES C)
+project(nixfs VERSION 0.2.1 LANGUAGES C)
 
 configure_file(
   "${PROJECT_SOURCE_DIR}/include/version.h.in"
