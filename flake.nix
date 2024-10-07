@@ -47,18 +47,13 @@
 
 			config = mkIf config.services.nixfs.enable {
 				system.fsPackages = [ self.packages.${pkgs.system}.nixfs ];
-				systemd = {
-					services.nixfs = {
-						wantedBy = [ "multi-user.target" ];
-						path = with pkgs; [
-							git
-							nix
-							self.packages.${pkgs.system}.nixfs
-						];
-						script = "nixfs ${config.services.nixfs.mountPath} -o allow_other -f";
-					};
-					tmpfiles.rules = [ "d ${config.services.nixfs.mountPath} - - -" ];
-				};
+				systemd.mounts = [{
+					what = "none";
+					where = config.services.nixfs.mountPath;
+					type = "fuse.nixfs";
+					options = "allow_other";
+					wantedBy = [ "multi-user.target" ];
+				}];
 			};
 		};
 		checks = genAttrs archs (system: with nixpkgs.legacyPackages.${system}; {
@@ -88,7 +83,6 @@
 				# use the store path of the nixpkgs flake to avoid downloading from the internet
 				testScript = concatStringsSep "\n" [
 					"n.wait_for_unit('execsnoop.service')"
-					"n.wait_for_unit('nixfs.service')"
 					"assert 'Hello, world!' in n.succeed('set -x; /nixfs/flake/b64/--offline/$(printf ${self}#hello | base64 -w0)/bin/hello')"
 				];
 			};
