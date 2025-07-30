@@ -56,6 +56,31 @@
 				}];
 			};
 		};
+		# module for [system-manager](https://github.com/numtide/system-manager)
+		systemModules.nixfs = { config, pkgs, lib, ... }: {
+			options.services.nixfs = {
+				enable = mkEnableOption "NixFS service";
+				mountPath = mkOption {
+					type = types.path;
+					default = "/nixfs";
+					description = "Path to mount the NixFS filesystem.";
+				};
+			};
+			config = mkIf config.services.nixfs.enable {
+				systemd = {
+					mounts = [{
+						what = "none";
+						where = config.services.nixfs.mountPath;
+						type = "fuse.nixfs";
+						options = "allow_other";
+						wantedBy = [ "system-manager.target" ];
+					}];
+					tmpfiles.rules = map (x: "L+ /usr/bin/${x}nixfs - - - - ${lib.getExe self.packages.${pkgs.system}.default}") [
+						"mount." "mount.fuse." ""
+					];
+				};
+			};
+		};
 		checks = genAttrs archs (system: with nixpkgs.legacyPackages.${system}; {
 			default = nixosTest {
 				name = "nixfs-test";
