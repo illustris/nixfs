@@ -75,7 +75,13 @@
 						options = "allow_other";
 						wantedBy = [ "system-manager.target" ];
 					}];
-					tmpfiles.rules = map (x: "L+ /usr/bin/${x}nixfs - - - - ${lib.getExe self.packages.${pkgs.system}.default}") [
+					tmpfiles.rules = map (x: "L+ /usr/bin/${x}nixfs - - - - ${
+						pkgs.writeScript "nixfs-wrap" (lib.concatLines [
+							"#!/bin/sh"
+							"export PATH=$PATH:/root/.nix-profile/bin/"
+							"exec ${lib.getExe self.packages.${pkgs.system}.default} $@"
+						])
+					}") [
 						"mount." "mount.fuse." ""
 					];
 				};
