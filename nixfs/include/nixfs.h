@@ -1,6 +1,8 @@
 #ifndef NIXFS_H
 #define NIXFS_H
 
+#include <sys/types.h>
+
 int nixfs_getattr(const char *path, struct stat *stbuf);
 int nixfs_readlink(const char *path, char *buf, size_t size);
 int nixfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
@@ -17,5 +19,8 @@ typedef struct {
 	off_t size;
 } fs_node;
 
+extern uid_t eval_uid;
+extern gid_t eval_gid;
+extern char eval_cache_dir[64];
 
 #endif // NIXFS_H

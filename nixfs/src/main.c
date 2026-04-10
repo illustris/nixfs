@@ -1,21 +1,28 @@
+#define _GNU_SOURCE
 #define FUSE_USE_VERSION 26
 #include <fuse.h>
 #include <string.h>
 #include <errno.h>
 #include <stddef.h>
 #include <fcntl.h>
+#include <pwd.h>
+#include <stdlib.h>
+#include <unistd.h>
 
 #include "debug.h"
 #include "nixfs.h"
 #include "version.h"
 
 int debug_enabled = 0;
+uid_t eval_uid = (uid_t)-1;
+gid_t eval_gid = (gid_t)-1;
+char eval_cache_dir[64] = "";
 
 typedef struct {
 	int debug_enabled;
 	int print_version;
 	const char *mount_point;
-	// Add other custom flags as needed
+	const char *eval_user;
 } nixfs_options;
 
 nixfs_options options;
@@ -24,7 +31,7 @@ nixfs_options options;
 static struct fuse_opt nixfs_opts[] = {
 	NIXFS_OPT("--debug", debug_enabled),
 	NIXFS_OPT("--version", print_version),
-	// Add more custom flags here
+	{"--eval-user=%s", offsetof(nixfs_options, eval_user), 0},
 	FUSE_OPT_END
 };
 
@@ -75,9 +82,35 @@ int main(int argc, char *argv[]) {
 		log_debug("Debug logging enabled\n");
 	}
 
+	if (options.eval_user != NULL) {
+		struct passwd *pw = getpwnam(options.eval_user);
+		if (pw == NULL) {
+			fprintf(stderr, "Unknown eval user: %s\n", options.eval_user);
+			return 1;
+		}
+		eval_uid = pw->pw_uid;
+		eval_gid = pw->pw_gid;
+		const char *cache = getenv("NIXFS_EVAL_CACHE");
+		if (cache != NULL) {
+			snprintf(eval_cache_dir, sizeof(eval_cache_dir), "%s", cache);
+		} else {
+			strcpy(eval_cache_dir, "/tmp/nixfs-eval-XXXXXX");
+			if (mkdtemp(eval_cache_dir) == NULL) {
+				perror("mkdtemp");
+				return 1;
+			}
+			if (chown(eval_cache_dir, eval_uid, eval_gid) != 0) {
+				perror("chown eval cache dir");
+				return 1;
+			}
+		}
+		log_debug("Eval user: %s (uid=%d, gid=%d), cache: %s\n",
+			options.eval_user, eval_uid, eval_gid, eval_cache_dir);
+	}
+
 	// If no mount point was specified, show usage and exit
 	if (options.mount_point == NULL) {
-		fprintf(stderr, "Usage: %s [none] /path/to/mount/point [--options]\n", argv[0]);
+		fprintf(stderr, "Usage: %s [none] /path/to/mount/point [--eval-user=USER] [--options]\n", argv[0]);
 		return 1;
 	}
 

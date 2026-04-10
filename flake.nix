@@ -43,18 +43,46 @@
 					default = "/nixfs";
 					description = "Path to mount the NixFS filesystem.";
 				};
+				evalUser = mkOption {
+					type = types.str;
+					default = "nobody";
+					description = "User to run nix evaluations as. Limits file access during evaluation.";
+				};
 			};
 
-			config = mkIf config.services.nixfs.enable {
+			config = mkIf config.services.nixfs.enable (let
+				cfg = config.services.nixfs;
+			in {
 				system.fsPackages = [ self.packages.${pkgs.system}.nixfs ];
-				systemd.mounts = [{
-					what = "none";
-					where = config.services.nixfs.mountPath;
-					type = "fuse.nixfs";
-					options = "allow_other";
+				systemd.services.nixfs = {
+					description = "NixFS FUSE filesystem";
 					wantedBy = [ "multi-user.target" ];
-				}];
-			};
+					serviceConfig = {
+						ExecStartPre = "+${pkgs.writeShellScript "nixfs-setup" ''
+							${pkgs.coreutils}/bin/install -d -o nixfs -g nixfs ${cfg.mountPath}
+							${pkgs.coreutils}/bin/install -d -o ${cfg.evalUser} -g nogroup /var/cache/nixfs-eval
+						''}";
+						ExecStart = "${lib.getExe self.packages.${pkgs.system}.nixfs} -f -o allow_other --eval-user=${cfg.evalUser} ${cfg.mountPath}";
+						ExecStop = "${pkgs.fuse}/bin/fusermount -u ${cfg.mountPath}";
+						User = "nixfs";
+						Group = "nixfs";
+						AmbientCapabilities = [ "CAP_SETUID" "CAP_SETGID" ];
+						Environment = [
+							"PATH=${lib.makeBinPath [ pkgs.nix ]}:/run/current-system/sw/bin"
+							"XDG_CACHE_HOME=/var/cache/nixfs"
+							"NIXFS_EVAL_CACHE=/var/cache/nixfs-eval"
+						];
+						CacheDirectory = "nixfs";
+					};
+				};
+				users.users.nixfs = {
+					isSystemUser = true;
+					group = "nixfs";
+				};
+				users.groups.nixfs = {};
+				environment.etc."fuse.conf".text = "user_allow_other\n";
+				nix.settings.allowed-users = [ cfg.evalUser ];
+			});
 		};
 		# module for [system-manager](https://github.com/numtide/system-manager)
 		systemModules.nixfs = { config, pkgs, lib, ... }: {

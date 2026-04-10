@@ -1,5 +1,6 @@
 #include <errno.h>
 #include <fuse.h>
+#include <grp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -332,6 +333,24 @@ int nixfs_readlink(const char *path, char *buf, size_t size) {
 		dup2(pipe_fd[1], STDOUT_FILENO);
 		close(pipe_fd[0]);
 		close(pipe_fd[1]);
+
+		if (eval_uid != (uid_t)-1) {
+			if (setgroups(0, NULL) != 0) {
+				perror("setgroups");
+				_exit(1);
+			}
+			if (setgid(eval_gid) != 0) {
+				perror("setgid");
+				_exit(1);
+			}
+			if (setuid(eval_uid) != 0) {
+				perror("setuid");
+				_exit(1);
+			}
+			setenv("XDG_CACHE_HOME", eval_cache_dir, 1);
+			log_debug("nixfs_readlink: dropped privileges to uid=%d gid=%d\n",
+				eval_uid, eval_gid);
+		}
 
 		tokens[token_count-1] = NULL;
 		exec_nix_command(tokens+2, spec, is_expr);
