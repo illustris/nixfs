@@ -120,5 +120,7 @@ int main(int argc, char *argv[]) {
 		fuse_opt_add_arg(&args, options.mount_point);
 	}
 
-	return fuse_main(args.argc, args.argv, &nixfs_oper, NULL);
+	int result = fuse_main(args.argc, args.argv, &nixfs_oper, NULL);
+	fuse_opt_free_args(&args);
+	return result;
 }

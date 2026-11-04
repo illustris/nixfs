@@ -103,3 +103,23 @@ This will enable the NixFS service on your NixOS machine, and the filesystem wil
 ## Contributing
 
 If you'd like to contribute to the development of NixFS, please feel free to submit issues or pull requests on the GitHub repository.
+
+### Building and testing
+
+`nix build` runs the concurrent path-parsing regression check as part of the
+package build. `nix build .#checks.x86_64-linux.default` additionally checks
+flake and expression resolution through a mounted filesystem in a NixOS VM.
+
+For a sanitizer build, run the following with CMake, pkg-config, a C compiler,
+libfuse 2 development headers, and OpenSSL available:
+
+```sh
+cmake -S nixfs -B build -DCMAKE_BUILD_TYPE=Debug \
+  -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+Path tokenization uses request-local state because FUSE dispatches callbacks
+concurrently. The regression check exercises concurrent lookups with different
+path lengths and types, plus invalid readlink paths and zero-sized buffers.

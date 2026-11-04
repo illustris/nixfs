@@ -52,12 +52,22 @@ char** tokenize_path(const char *path) {
 		return NULL; // Memory allocation failed
 	}
 
-	// Tokenize the path
+	// FUSE callbacks run concurrently; tokenizer state must be request-local.
 	int index = 0;
-	char *token = strtok(path_copy, "/");
+	char *saveptr = NULL;
+	char *token = strtok_r(path_copy, "/", &saveptr);
 	while (token != NULL) {
-		tokens[index++] = strdup(token); // Duplicate token
-		token = strtok(NULL, "/");
+		tokens[index] = strdup(token);
+		if (tokens[index] == NULL) {
+			for (int i = 0; i < index; i++) {
+				free(tokens[i]);
+			}
+			free(tokens);
+			free(path_copy);
+			return NULL;
+		}
+		index++;
+		token = strtok_r(NULL, "/", &saveptr);
 	}
 	tokens[index] = NULL; // Null-terminate the array
 
@@ -102,11 +112,16 @@ int nixfs_getattr(const char *path, struct stat *stbuf) {
 
 	char **tokens = tokenize_path(path);
 	int token_count = 0;
-	if (tokens != NULL) {
-		for (int i = 0; tokens[i] != NULL; i++) {
-			log_debug("nixfs_getattr: tokens[%d] = %s\n", i, tokens[i]);
-			token_count++;
-		}
+	if (tokens == NULL) {
+		return -ENOMEM;
+	}
+	for (int i = 0; tokens[i] != NULL; i++) {
+		log_debug("nixfs_getattr: tokens[%d] = %s\n", i, tokens[i]);
+		token_count++;
+	}
+	if (token_count < 2) {
+		free_tokens(tokens);
+		return -ENOENT;
 	}
 
 	// Handle dynamic paths under /flake/ and /expr/
@@ -205,7 +220,7 @@ void exec_nix_command(char **tokens, const char *spec, int is_expr) {
 
 	// Prepare the arguments array
 	const int FIXED_ARGS = is_expr ? 9 : 8;  // Number of fixed arguments before tokens
-	char **args = malloc((FIXED_ARGS + token_count + 2) * sizeof(char*));
+	char **args = malloc((FIXED_ARGS + token_count + 2 + is_expr) * sizeof(char*));
 
 	if (args == NULL) {
 		perror("malloc");
@@ -233,10 +248,13 @@ void exec_nix_command(char **tokens, const char *spec, int is_expr) {
 		args[FIXED_ARGS + i] = tokens[i];
 	}
 
-	// Add spec and NULL
-	args[FIXED_ARGS + token_count] = is_expr ? "--expr" : (char*)spec;
-	args[FIXED_ARGS + token_count + 1] = is_expr ? (char*)spec : NULL;
-	args[FIXED_ARGS + token_count + 2] = NULL;
+	// Expressions need both --expr and its value before the terminator.
+	int next_arg = FIXED_ARGS + token_count;
+	if (is_expr) {
+		args[next_arg++] = "--expr";
+	}
+	args[next_arg++] = (char *)spec;
+	args[next_arg] = NULL;
 
 	for(int i = 0; args[i] != NULL; i++) {
 		log_debug("exec_nix_command: args[%d] = %s\n", i, args[i]);
@@ -250,14 +268,22 @@ void exec_nix_command(char **tokens, const char *spec, int is_expr) {
 
 int nixfs_readlink(const char *path, char *buf, size_t size) {
 	log_debug("nixfs_readlink: path='%s'\n", path);
+	if (size == 0) {
+		return -EINVAL;
+	}
 
 	char **tokens = tokenize_path(path);
 	int token_count = 0;
-	if (tokens != NULL) {
-		for (int i = 0; tokens[i] != NULL; i++) {
-			log_debug("nixfs_readlink: tokens[%d] = %s\n", i, tokens[i]);
-			token_count++;
-		}
+	if (tokens == NULL) {
+		return -ENOMEM;
+	}
+	for (int i = 0; tokens[i] != NULL; i++) {
+		log_debug("nixfs_readlink: tokens[%d] = %s\n", i, tokens[i]);
+		token_count++;
+	}
+	if (token_count < 3) {
+		free_tokens(tokens);
+		return -ENOENT;
 	}
 
 	if (strcmp(tokens[0], "flake") != 0 && strcmp(tokens[0], "expr") != 0) {
@@ -275,9 +301,8 @@ int nixfs_readlink(const char *path, char *buf, size_t size) {
 	log_debug("nixfs_readlink: path passed basic validation\n");
 
 	const char *encoded_spec;
-	const char *spec;
+	char *spec;
 	size_t decoded_len;
-	char *decoded_spec;
 
 	if (strcmp(tokens[1], "str") == 0) {
 		spec = strdup(tokens[token_count-1]);
@@ -299,16 +324,19 @@ int nixfs_readlink(const char *path, char *buf, size_t size) {
 		char *decoded_spec = malloc(strlen(encoded_spec) + 1);
 		if (decoded_spec == NULL) {
 			free_tokens(tokens);
-			return -ENOENT;
-		};
+			return -ENOMEM;
+		}
 		if (decode_func(encoded_spec, strlen(encoded_spec), decoded_spec, &decoded_len) == -1) {
 			free(decoded_spec);
 			free_tokens(tokens);
 			return -ENOENT;
 		}
 		decoded_spec[decoded_len] = '\0';
-		spec = strdup(decoded_spec);
-		free(decoded_spec);
+		spec = decoded_spec;
+	}
+	if (spec == NULL) {
+		free_tokens(tokens);
+		return -ENOMEM;
 	}
 	log_debug("nixfs_readlink: spec = %s\n", spec);
 
@@ -374,6 +402,7 @@ int nixfs_readlink(const char *path, char *buf, size_t size) {
 				break;
 			}
 			total_read += nread;
+			buf[total_read] = '\0';
 			log_debug("nixfs_readlink: partial read buf = %s\n", buf);
 		}
 

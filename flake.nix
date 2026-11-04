@@ -23,6 +23,7 @@
 					fuse
 					openssl
 				];
+				doCheck = true;
 			};
 			default = nixfs;
 			# to speed up nixos test
@@ -136,7 +137,8 @@
 				# use the store path of the nixpkgs flake to avoid downloading from the internet
 				testScript = concatStringsSep "\n" [
 					"n.wait_for_unit('execsnoop.service')"
-					"assert 'Hello, world!' in n.succeed('set -x; /nixfs/flake/b64/--offline/$(printf ${self}#hello | base64 -w0)/bin/hello')"
+					"assert 'Hello, world!' in n.succeed('set -x; /nixfs/flake/b64/--offline/$(printf path:${self}#hello | base64 -w0)/bin/hello')"
+					''assert 'Hello, world!' in n.succeed("""set -x; /nixfs/expr/b64/--offline/$(printf '(builtins.getFlake "path:${self}").packages.${system}.hello' | base64 -w0)/bin/hello""")''
 				];
 			};
 		});
