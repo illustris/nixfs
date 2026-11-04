@@ -1,4 +1,4 @@
-#define FUSE_USE_VERSION 26
+#define FUSE_USE_VERSION 35
 #include <errno.h>
 #include <fuse.h>
 #include <pthread.h>
@@ -33,7 +33,7 @@ static void *check_attributes(void *arg) {
 	pthread_barrier_wait(&barrier);
 	for (int i = 0; i < 10000; i++) {
 		struct stat st;
-		int result = nixfs_getattr(cases[index].path, &st);
+		int result = nixfs_getattr(cases[index].path, &st, NULL);
 		if (cases[index].type == 0 ? result != -ENOENT :
 		    result != 0 || (st.st_mode & S_IFMT) != cases[index].type) {
 			fprintf(stderr, "%s: result=%d mode=%o\n", cases[index].path,

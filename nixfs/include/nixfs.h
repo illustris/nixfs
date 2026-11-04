@@ -3,10 +3,12 @@
 
 #include <sys/types.h>
 
-int nixfs_getattr(const char *path, struct stat *stbuf);
+int nixfs_getattr(const char *path, struct stat *stbuf,
+		   struct fuse_file_info *fi);
 int nixfs_readlink(const char *path, char *buf, size_t size);
 int nixfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
-		  off_t offset, struct fuse_file_info *fi);
+		  off_t offset, struct fuse_file_info *fi,
+		  enum fuse_readdir_flags flags);
 int nixfs_open(const char *path, struct fuse_file_info *fi);
 int nixfs_read(const char *path, char *buf, size_t size, off_t offset,
 	       struct fuse_file_info *fi);

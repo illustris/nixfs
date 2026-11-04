@@ -1,5 +1,5 @@
 #define _GNU_SOURCE
-#define FUSE_USE_VERSION 26
+#define FUSE_USE_VERSION 35
 #include <fuse.h>
 #include <string.h>
 #include <errno.h>

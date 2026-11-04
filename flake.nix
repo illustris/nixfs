@@ -20,10 +20,11 @@
 					pkg-config
 				];
 				buildInputs = [
-					fuse
+					fuse3
 					openssl
 				];
 				doCheck = true;
+				meta.mainProgram = "nixfs";
 			};
 			default = nixfs;
 			# to speed up nixos test
@@ -54,7 +55,7 @@
 			config = mkIf config.services.nixfs.enable (let
 				cfg = config.services.nixfs;
 			in {
-				system.fsPackages = [ self.packages.${pkgs.system}.nixfs ];
+				system.fsPackages = [ self.packages.${pkgs.stdenv.hostPlatform.system}.nixfs ];
 				systemd.services.nixfs = {
 					description = "NixFS FUSE filesystem";
 					wantedBy = [ "multi-user.target" ];
@@ -63,13 +64,13 @@
 							${pkgs.coreutils}/bin/install -d -o nixfs -g nixfs ${cfg.mountPath}
 							${pkgs.coreutils}/bin/install -d -o ${cfg.evalUser} -g nogroup /var/cache/nixfs-eval
 						''}";
-						ExecStart = "${lib.getExe self.packages.${pkgs.system}.nixfs} -f -o allow_other --eval-user=${cfg.evalUser} ${cfg.mountPath}";
-						ExecStop = "${pkgs.fuse}/bin/fusermount -u ${cfg.mountPath}";
+						ExecStart = "${lib.getExe self.packages.${pkgs.stdenv.hostPlatform.system}.nixfs} -f -o allow_other --eval-user=${cfg.evalUser} ${cfg.mountPath}";
+						ExecStop = "${pkgs.fuse3}/bin/fusermount3 -u ${cfg.mountPath}";
 						User = "nixfs";
 						Group = "nixfs";
 						AmbientCapabilities = [ "CAP_SETUID" "CAP_SETGID" ];
 						Environment = [
-							"PATH=${lib.makeBinPath [ pkgs.nix ]}:/run/current-system/sw/bin"
+							"PATH=${lib.makeBinPath [ pkgs.fuse3 pkgs.nix ]}:/run/current-system/sw/bin"
 							"XDG_CACHE_HOME=/var/cache/nixfs"
 							"NIXFS_EVAL_CACHE=/var/cache/nixfs-eval"
 						];
@@ -81,7 +82,10 @@
 					group = "nixfs";
 				};
 				users.groups.nixfs = {};
-				environment.etc."fuse.conf".text = "user_allow_other\n";
+				programs.fuse = {
+					enable = true;
+					userAllowOther = true;
+				};
 				nix.settings.allowed-users = [ cfg.evalUser ];
 			});
 		};
@@ -104,14 +108,14 @@
 						options = "allow_other";
 						wantedBy = [ "system-manager.target" ];
 					}];
-					tmpfiles.rules = map (x: "L+ /usr/bin/${x}nixfs - - - - ${lib.getExe self.packages.${pkgs.system}.default}") [
+					tmpfiles.rules = map (x: "L+ /usr/bin/${x}nixfs - - - - ${lib.getExe self.packages.${pkgs.stdenv.hostPlatform.system}.default}") [
 						"mount." "mount.fuse." ""
 					];
 				};
 			};
 		};
 		checks = genAttrs archs (system: with nixpkgs.legacyPackages.${system}; {
-			default = nixosTest {
+			default = testers.nixosTest {
 				name = "nixfs-test";
 				nodes.n = { pkgs, ... }: {
 					imports = [ self.nixosModules.nixfs ];

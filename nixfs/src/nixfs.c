@@ -1,3 +1,4 @@
+#define FUSE_USE_VERSION 35
 #include <errno.h>
 #include <fuse.h>
 #include <grp.h>
@@ -95,7 +96,8 @@ int validate_path(const char *valid_paths[], int num_valid_paths, const char *to
 	return is_valid_path;
 }
 
-int nixfs_getattr(const char *path, struct stat *stbuf) {
+int nixfs_getattr(const char *path, struct stat *stbuf,
+		   struct fuse_file_info *fi) {
 	log_debug("nixfs_getattr: path='%s'\n", path);
 
 	memset(stbuf, 0, sizeof(struct stat));
@@ -157,7 +159,8 @@ int nixfs_getattr(const char *path, struct stat *stbuf) {
 }
 
 int nixfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
-                  off_t offset, struct fuse_file_info *fi) {
+		  off_t offset, struct fuse_file_info *fi,
+		  enum fuse_readdir_flags flags) {
 	log_debug("nixfs_readdir: path='%s'\n", path);
 
 	fs_node *parent = NULL;
@@ -174,8 +177,8 @@ int nixfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 		return -ENOENT;
 	}
 
-	filler(buf, ".", NULL, 0);
-	filler(buf, "..", NULL, 0);
+	filler(buf, ".", NULL, 0, 0);
+	filler(buf, "..", NULL, 0, 0);
 
 	// find all child dirs of parent
 	for (size_t i = 0; i < N_FS_NODES; i++) {
@@ -184,7 +187,7 @@ int nixfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 			const char *child_name = fs_nodes[i].path + strlen(parent->path);
 			// pass only up to the next / to filler()
 			if (child_name[0] != '\0' && strchr(child_name + 1, '/') == NULL) {
-				filler(buf, child_name + (child_name[0] == '/' ? 1 : 0), NULL, 0);
+				filler(buf, child_name + (child_name[0] == '/' ? 1 : 0), NULL, 0, 0);
 			}
 		}
 	}

@@ -21,7 +21,7 @@ set_property(TARGET nixfs PROPERTY COMPILE_DEFINITIONS _FILE_OFFSET_BITS=64)
 
 # Find and link the Fuse library
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(FUSE REQUIRED fuse)
+pkg_check_modules(FUSE REQUIRED fuse3)
 include_directories(${FUSE_INCLUDE_DIRS})
 target_link_libraries(nixfs ${FUSE_LIBRARIES})
 
