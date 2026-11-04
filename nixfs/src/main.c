@@ -32,6 +32,7 @@ static struct fuse_opt nixfs_opts[] = {
 	NIXFS_OPT("--debug", debug_enabled),
 	NIXFS_OPT("--version", print_version),
 	{"--eval-user=%s", offsetof(nixfs_options, eval_user), 0},
+	{"eval-user=%s", offsetof(nixfs_options, eval_user), 0},
 	FUSE_OPT_END
 };
 

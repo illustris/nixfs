@@ -98,6 +98,11 @@
 					default = "/nixfs";
 					description = "Path to mount the NixFS filesystem.";
 				};
+				evalUser = mkOption {
+					type = types.str;
+					default = "nobody";
+					description = "User to run Nix evaluations as. Limits file access during evaluation.";
+				};
 			};
 			config = mkIf config.services.nixfs.enable {
 				systemd = {
@@ -105,7 +110,7 @@
 						what = "none";
 						where = config.services.nixfs.mountPath;
 						type = "fuse.nixfs";
-						options = "allow_other";
+						options = "allow_other,eval-user=${config.services.nixfs.evalUser}";
 						wantedBy = [ "system-manager.target" ];
 					}];
 					tmpfiles.rules = map (x: "L+ /usr/bin/${x}nixfs - - - - ${lib.getExe self.packages.${pkgs.stdenv.hostPlatform.system}.default}") [

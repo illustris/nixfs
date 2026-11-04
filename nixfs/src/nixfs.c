@@ -355,6 +355,8 @@ int nixfs_readlink(const char *path, char *buf, size_t size) {
 	pid_t pid = fork();
 	if (pid == -1) {
 		perror("fork");
+		close(pipe_fd[0]);
+		close(pipe_fd[1]);
 		free_tokens(tokens);
 		free((void *)spec);
 		return -EIO;

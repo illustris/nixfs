@@ -100,6 +100,11 @@ To do this, add the following to your flake.nix:
 
 This will enable the NixFS service on your NixOS machine, and the filesystem will be automatically mounted on startup.
 
+Both the NixOS and system-manager modules run Nix evaluations as `nobody` by
+default so impure expressions cannot read files as root. Set
+`services.nixfs.evalUser` to a dedicated unprivileged account when stronger
+isolation from other services is required.
+
 ## Contributing
 
 If you'd like to contribute to the development of NixFS, please feel free to submit issues or pull requests on the GitHub repository.
